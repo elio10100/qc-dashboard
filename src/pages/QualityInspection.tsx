@@ -8,9 +8,6 @@ import { Label } from "../components/ui/label"
 import { Button } from "../components/ui/button"
 import { Popover, PopoverTrigger, PopoverContent } from "../components/ui/popover"
 import { Calendar } from "../components/ui/calendar"
-import { Chart as ChartJS, ArcElement, Tooltip, Legend, PieController } from 'chart.js'
-
-ChartJS.register(ArcElement, Tooltip, Legend, PieController)
 
 export default function QualityInspection() {
   const [formData, setFormData] = useState({
@@ -27,7 +24,6 @@ export default function QualityInspection() {
     quality1: "",
     quality2: "",
     defects: [{ name: "", count: "" }],
-    pti: ""
   })
   const [images, setImages] = useState<{ name: string; files: File[] }[]>([])
   const [showNext, setShowNext] = useState(false)
@@ -87,31 +83,85 @@ export default function QualityInspection() {
     const q1 = parseFloat(formData.quality1) || 0
     const q2 = parseFloat(formData.quality2) || 0
     const total = q1 + q2
-    const totalDefects = formData.defects.reduce((sum, d) => sum + (parseFloat(d.count) || 0), 0)
     const q1Percent = total ? ((q1 / total) * 100).toFixed(1) : "0"
     const q2Percent = total ? ((q2 / total) * 100).toFixed(1) : "0"
-
-    const defectPiePercents = formData.defects.map((d) => {
-      const count = parseFloat(d.count) || 0
-      return total ? (count / total * 100).toFixed(1) : "0"
-    })
-
-    return {
-      q1Percent,
-      q2Percent,
-      defectPercents: formData.defects.map((d) => {
-        const count = parseFloat(d.count) || 0
-        return totalDefects ? (((count / totalDefects) * parseFloat(q2Percent))).toFixed(1) : "0"
-      }),
-      pieChartLabels: ["Quality #1", ...formData.defects.map(d => d.name)],
-      pieChartData: [parseFloat(q1Percent), ...formData.defects.map((d, i) => parseFloat(defectPiePercents[i]))]
-    }
+    return { q1Percent, q2Percent }
   }
 
   const handleContinue = () => setShowNext(true)
 
   const generatePDF = async () => {
-    // existing generatePDF logic
+    const doc = new jsPDF();
+    const { q1Percent, q2Percent } = calculatePercentages();
+
+    doc.setFontSize(16);
+    doc.text("Quality Inspection Report", 14, 15);
+
+    autoTable(doc, {
+      startY: 25,
+      head: [["Field", "Value"]],
+      body: [
+        ["Date", formData.date.toLocaleDateString()],
+        ["Location", formData.location],
+        ["Inspector", formData.inspector],
+        ["Product", formData.product],
+        ["Grower", formData.grower],
+        ["Type", formData.type],
+        ["Total Boxes", formData.totalBoxes],
+        ["Lot Number", formData.lot],
+        ["Temperature", formData.temperature],
+        ["Notes", formData.notes],
+      ],
+    });
+
+    autoTable(doc, {
+      startY: doc.lastAutoTable.finalY + 10,
+      head: [["Classification", "Count", "%"]],
+      body: [
+        ["Quality #1", formData.quality1, q1Percent],
+        ["Quality #2", formData.quality2, q2Percent],
+      ],
+    });
+
+    if (formData.quality2 && parseFloat(formData.quality2) > 0) {
+      autoTable(doc, {
+        startY: doc.lastAutoTable.finalY + 10,
+        head: [["Defect", "Count"]],
+        body: formData.defects.map((d) => [d.name, d.count]),
+      });
+    }
+
+    for (const imgGroup of images) {
+      doc.addPage();
+      doc.setFontSize(14);
+      doc.text(`Images for: ${imgGroup.name}`, 14, 20);
+
+      let y = 30;
+      for (const file of imgGroup.files) {
+        const reader = new FileReader();
+        await new Promise<void>((resolve, reject) => {
+          reader.onload = () => {
+            try {
+              const imageDataUrl = reader.result as string;
+              doc.addImage(imageDataUrl, 'JPEG', 15, y, 80, 60);
+              y += 70;
+              if (y > 250) {
+                doc.addPage();
+                y = 30;
+              }
+              resolve();
+            } catch (err) {
+              console.error("Error adding image to PDF:", err);
+              resolve();
+            }
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+      }
+    }
+
+    doc.save("inspection_report.pdf");
   }
 
   const { q1Percent, q2Percent } = calculatePercentages()
@@ -182,16 +232,13 @@ export default function QualityInspection() {
             </div>
           ))}
           <Button onClick={handleAddDefect}>Add Defect</Button>
-          <Input placeholder="PTI" name="pti" value={formData.pti} onChange={handleChange} />
           <div>
             <Label>Category #1 Photos</Label>
-            <Input type="file" multiple onChange={(e) => handleImageUpload(e, "Category #1")} />
-            <Label>PTI Photos</Label>
-            <Input type="file" multiple onChange={(e) => handleImageUpload(e, "PTI")} />
+            <Input type="file" multiple accept="image/*" onChange={(e) => handleImageUpload(e, "Category #1")} />
             {formData.defects.map((defect, index) => (
               <div key={index}>
                 <Label>{defect.name} Photos</Label>
-                <Input type="file" multiple onChange={(e) => handleImageUpload(e, defect.name)} />
+                <Input type="file" multiple accept="image/*" onChange={(e) => handleImageUpload(e, defect.name)} />
               </div>
             ))}
           </div>

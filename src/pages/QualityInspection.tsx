@@ -23,8 +23,9 @@ export default function QualityInspection() {
     notes: "",
     quality1: "",
     quality2: "",
-    defects: [{ name: "", count: "" }],
+    defects: [{ name: "", count: "" }]
   })
+
   const [images, setImages] = useState<{ name: string; files: File[] }[]>([])
   const [showNext, setShowNext] = useState(false)
   const [authenticated, setAuthenticated] = useState(false)
@@ -85,14 +86,25 @@ export default function QualityInspection() {
     const total = q1 + q2
     const q1Percent = total ? ((q1 / total) * 100).toFixed(1) : "0"
     const q2Percent = total ? ((q2 / total) * 100).toFixed(1) : "0"
-    return { q1Percent, q2Percent }
+
+    const totalDefects = formData.defects.reduce((sum, d) => sum + (parseFloat(d.count) || 0), 0)
+    const defectPercents = formData.defects.map((d) => {
+      const count = parseFloat(d.count) || 0
+      return totalDefects ? ((count / totalDefects) * parseFloat(q2Percent)).toFixed(1) : "0"
+    })
+
+    return {
+      q1Percent,
+      q2Percent,
+      defectPercents,
+    }
   }
 
   const handleContinue = () => setShowNext(true)
 
   const generatePDF = async () => {
     const doc = new jsPDF();
-    const { q1Percent, q2Percent } = calculatePercentages();
+    const { q1Percent, q2Percent, defectPercents } = calculatePercentages();
 
     doc.setFontSize(16);
     doc.text("Quality Inspection Report", 14, 15);
@@ -126,8 +138,8 @@ export default function QualityInspection() {
     if (formData.quality2 && parseFloat(formData.quality2) > 0) {
       autoTable(doc, {
         startY: doc.lastAutoTable.finalY + 10,
-        head: [["Defect", "Count"]],
-        body: formData.defects.map((d) => [d.name, d.count]),
+        head: [["Defect", "Count", "%"]],
+        body: formData.defects.map((d, i) => [d.name, d.count, defectPercents[i]]),
       });
     }
 
@@ -164,7 +176,7 @@ export default function QualityInspection() {
     doc.save("inspection_report.pdf");
   }
 
-  const { q1Percent, q2Percent } = calculatePercentages()
+  const { q1Percent, q2Percent, defectPercents } = calculatePercentages()
 
   if (!authenticated) {
     return (
@@ -226,9 +238,12 @@ export default function QualityInspection() {
       {showNext && (
         <>
           {formData.defects.map((defect, index) => (
-            <div key={index} className="flex gap-2">
+            <div key={index} className="flex gap-2 items-center">
               <Input placeholder="Defect Name" value={defect.name} onChange={(e) => handleDefectChange(index, "name", e.target.value)} />
               <Input placeholder="Count" value={defect.count} onChange={(e) => handleDefectChange(index, "count", e.target.value)} />
+              {formData.quality2 && parseFloat(formData.quality2) > 0 && (
+                <span className="text-sm text-gray-600">{defectPercents[index]}%</span>
+              )}
             </div>
           ))}
           <Button onClick={handleAddDefect}>Add Defect</Button>
